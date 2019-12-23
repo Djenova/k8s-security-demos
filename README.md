@@ -151,6 +151,12 @@ This scenario demonstrates the potential for privilege escalation and network po
 
 #### Preparation
 
+Exit from the `kubectl port-forward` if it's still running from demo1.
+
+```console
+exit
+```
+
 ```console
 kubectl apply -f demo1/installation.yaml # To ensure Tiller is installed
 kubectl apply -f demo2/installation.yaml # RBAC and default ns network policy
@@ -205,6 +211,7 @@ export PATH=/tmp:$PATH; cd /tmp; wget -qO helm.tar.gz https://get.helm.sh/helm-v
 
 ```console
 export HELM_HOST=tiller-deploy.kube-system.svc.cluster.local:44134; helm ls
+exit
 ```
 
 ### Exploitation (Method 2)
@@ -229,12 +236,6 @@ kubectl --as demo@example.com apply -f demo2/daemonset.yaml
 
 ```console
 kubectl --as demo@example.com logs -f daemonset/secret-logger --all-containers=true --since=1m
-```
-
-4. Cleanup
-
-```console
-kubectl --as demo@example.com delete -f demo2/daemonset.yaml
 ```
 
 ### Prevention
