@@ -1,0 +1,179 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  creationTimestamp: null
+  name: dashboard-secret
+type: Opaque
+data:
+  username: cmNl
+  password: ZXhwbG9pdGdvZXNoZXJl
+---
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  name: dashboard
+  labels:
+    app: dashboard
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    targetPort: http
+    protocol: TCP
+    nodePort: 30000
+    name: dashboard
+  selector:
+    app: dashboard
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  name: dashboard
+  labels:
+    app: dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dashboard
+  template:
+    metadata:
+      labels:
+        app: dashboard
+    spec:
+      serviceAccountName: default
+      containers:
+        - name: dashboard
+          image: "securekubernetes/example-dashboard:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: backend
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: DEPLOYTYPE
+              value: DEV
+        - name: authproxy
+          image: "securekubernetes/auth-proxy:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: UPSTREAM_IP
+              value: "localhost"
+            - name: UPSTREAM_PORT
+              value: "3000"
+            - name: AUTH_DIR
+              value: webshell
+            - name: WEBUSERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: dashboard-secret
+                  key: username
+            - name: WEBPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dashboard-secret
+                  key: password
+---
+# Create a dedicated SA for Tiller's use
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tiller
+  namespace: kube-system
+  creationTimestamp: null
+---
+# Grant the kube-system/tiller SA cluster-admin at the cluster scope
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: tiller
+  creationTimestamp: null
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: tiller
+  namespace: kube-system
+---
+# Deploy Tiller
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: helm
+    name: tiller
+  name: tiller-deploy
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: helm
+      name: tiller
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: helm
+        name: tiller
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - env:
+        - name: TILLER_NAMESPACE
+          value: kube-system
+        - name: TILLER_HISTORY_MAX
+          value: "0"
+        image: gcr.io/kubernetes-helm/tiller:v2.16.1
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          httpGet:
+            path: /liveness
+            port: 44135
+          initialDelaySeconds: 1
+          timeoutSeconds: 1
+        name: tiller
+        ports:
+        - containerPort: 44134
+          name: tiller
+        - containerPort: 44135
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /readiness
+            port: 44135
+          initialDelaySeconds: 1
+          timeoutSeconds: 1
+        resources: {}
+      serviceAccountName: tiller
+---
+# Tiller's service for access
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: helm
+    name: tiller
+  name: tiller-deploy
+  namespace: kube-system
+spec:
+  ports:
+  - name: tiller
+    port: 44134
+    targetPort: tiller
+  selector:
+    app: helm
+    name: tiller
+  type: ClusterIP
